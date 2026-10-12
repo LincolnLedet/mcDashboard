@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MC Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        mc: {
+                            dark: '#1a1a1a',
+                            darker: '#121212',
+                            green: '#4ade80',
+                            gray: '#2a2a2a'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-mc-darker text-gray-100 min-h-screen">
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8 flex justify-between items-center">
+            <div class="flex items-center gap-4">
+                <img src="/server-icon.png" alt="Server Icon" class="w-16 h-16 rounded-lg">
+                <div>
+                    <h1 class="text-3xl font-bold text-mc-green">Minecraft Server</h1>
+                    <p class="text-gray-500 mt-1">Live dashboard</p>
+                </div>
+            </div>
+            <a href="/whitelist" class="bg-mc-green hover:bg-green-400 text-black font-semibold px-4 py-2 rounded-lg transition">
+                Join Server
+            </a>
+        </header>
+
+        <!-- Status Banner -->
+        <div id="status-banner" class="bg-mc-dark rounded-lg p-4 mb-6 flex items-center justify-between">
+            <div class="text-gray-500">Loading...</div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div id="stats-grid" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid lg:grid-cols-3 gap-6 mb-6">
+            <!-- Map (static, never refreshes) -->
+            <div class="lg:col-span-2 bg-mc-dark rounded-lg overflow-hidden">
+                <div class="px-4 py-3 border-b border-mc-gray">
+                    <h2 class="font-semibold">Live Map</h2>
+                </div>
+                <iframe
+                    src="{{ map_url }}"
+                    class="w-full h-96 lg:h-[500px]"
+                    frameborder="0"
+                ></iframe>
+            </div>
+
+            <!-- Players -->
+            <div class="bg-mc-dark rounded-lg">
+                <div class="px-4 py-3 border-b border-mc-gray flex justify-between items-center">
+                    <h2 class="font-semibold">Players</h2>
+                    <span id="players-count" class="text-xs text-gray-500">0 tracked</span>
+                </div>
+                <div id="players-list" class="p-4 space-y-3 max-h-[500px] overflow-y-auto">
+                    <div class="text-gray-500 text-center py-8">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat -->
+        <div class="bg-mc-dark rounded-lg">
+            <div class="px-4 py-3 border-b border-mc-gray flex justify-between items-center">
+                <h2 class="font-semibold">Chat</h2>
+                <span id="chat-count" class="text-xs text-gray-500">0 messages</span>
+            </div>
+            <div id="chat-container" class="p-4 font-mono text-sm space-y-1 max-h-64 overflow-y-auto flex flex-col-reverse">
+                <div class="text-gray-500 text-center py-8">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-6 flex justify-between items-center text-xs text-gray-600">
+            <span>Auto-refreshes every 10s</span>
+            <div class="flex items-center gap-4">
+                <a href="https://heyim.link" target="_blank" class="hover:text-mc-green transition">Built by heyim.link</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Chat messages, names and the MOTD come from players; never insert them as HTML.
+        function esc(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
+        }
+
+        function formatUptime(seconds) {
+            if (seconds === null || seconds === undefined) return '-';
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            if (days > 0) return `${days}d ${hours}h ${mins}m`;
+            if (hours > 0) return `${hours}h ${mins}m`;
+            return `${mins}m`;
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                const players = data.player_history || [];
+                const chats = data.recent_chats || [];
+                const currentPlayers = data.current_players || [];
+
+                // Update status banner
+                document.getElementById('status-banner').innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <div class="w-3 h-3 rounded-full ${data.online ? 'bg-mc-green' : 'bg-red-500'} animate-pulse"></div>
+                        <div>
+                            <span class="font-semibold">${data.online ? 'Online' : 'Offline'}</span>
+                            <span class="text-gray-500 ml-2">${esc(data.address)}</span>
+                            <span class="text-gray-500 ml-2">${esc(data.version_name)}</span>
+                        </div>
+                    </div>
+                    <div class="text-gray-400 text-sm">${esc(data.motd)}</div>
+                `;
+
+                // Update stats grid
+                document.getElementById('stats-grid').innerHTML = `
+                    <div class="bg-mc-dark rounded-lg p-4">
+                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">Players</div>
+                        <div class="text-2xl font-bold">${esc(data.players_online ?? '-')}<span class="text-gray-500 text-lg">/${esc(data.players_max ?? '-')}</span></div>
+                    </div>
+                    <div class="bg-mc-dark rounded-lg p-4">
+                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">RAM</div>
+                        <div class="text-sm font-bold mb-2">${data.ram_mb !== null && data.ram_mb !== undefined ? Math.round(data.ram_mb) : '-'}<span class="text-gray-500"> / ${Math.round(data.ram_max_mb)} MB</span></div>
+                        <div class="w-full bg-mc-darker rounded-full h-2">
+                            <div class="h-2 rounded-full transition-all ${data.ram_mb / data.ram_max_mb > 0.8 ? 'bg-red-500' : data.ram_mb / data.ram_max_mb > 0.6 ? 'bg-yellow-500' : 'bg-mc-green'}" style="width: ${Math.min((data.ram_mb / data.ram_max_mb) * 100, 100)}%"></div>
+                        </div>
+                    </div>
+                    <div class="bg-mc-dark rounded-lg p-4">
+                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">Uptime</div>
+                        <div class="text-2xl font-bold">${formatUptime(data.uptime_seconds)}</div>
+                    </div>
+                    <div class="bg-mc-dark rounded-lg p-4">
+                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">TPS</div>
+                        <div class="text-2xl font-bold ${data.tps >= 19 ? 'text-mc-green' : data.tps >= 15 ? 'text-yellow-500' : 'text-red-500'}">${typeof data.tps === 'number' ? data.tps.toFixed(1) : '-'}</div>
+                    </div>
+                    <div class="bg-mc-dark rounded-lg p-4">
+                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">World Time</div>
+                        <div class="text-xl font-bold">Day ${esc(data.server_day ?? '-')}</div>
+                        <div class="text-sm text-gray-400">${esc(data.server_time || '-')}</div>
+                    </div>
+                `;
+
+                // Update players
+                document.getElementById('players-count').textContent = `${players.length} tracked`;
+                document.getElementById('players-list').innerHTML = players.length > 0 ? players.map(p => `
+                    <div class="flex items-center justify-between p-3 bg-mc-darker rounded-lg">
+                        <div>
+                            <div class="font-medium ${currentPlayers.includes(p.name) ? 'text-mc-green' : 'text-gray-300'}">
+                                ${currentPlayers.includes(p.name) ? '● ' : ''}${esc(p.name)}
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs text-gray-500">${esc(p.join_count)} joins</div>
+                        </div>
+                    </div>
+                `).join('') : '<div class="text-gray-500 text-center py-8">No players yet</div>';
+
+                // Update chat
+                document.getElementById('chat-count').textContent = `${chats.length} messages`;
+                document.getElementById('chat-container').innerHTML = `<div>
+                    ${chats.length > 0 ? chats.map(c => `
+                        <div class="py-1">
+                            <span class="text-gray-600">[${esc(c.timestamp)}]</span>
+                            <span class="text-mc-green">&lt;${esc(c.player_name)}&gt;</span>
+                            <span class="text-gray-300">${esc(c.message)}</span>
+                        </div>
+                    `).join('') : '<div class="text-gray-500 text-center py-8">No messages yet</div>'}
+                </div>`;
+
+            } catch (err) {
+                document.getElementById('status-banner').innerHTML = `
+                    <div class="text-red-400">Failed to load: ${esc(err.message)}</div>
+                    <button onclick="fetchStatus()" class="px-3 py-1 bg-mc-gray rounded hover:bg-gray-700 transition">Retry</button>
+                `;
+            }
+        }
+
+        fetchStatus();
+        setInterval(fetchStatus, 10000);
+    </script>
+</body>
+</html>
