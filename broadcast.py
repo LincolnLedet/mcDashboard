@@ -8,18 +8,16 @@ CONTAINER = "minecraft"
 
 # name -> (text before the link, link, text after the link)
 MESSAGES = {
-    "dashboard": ("Server stats, chat history and the live map: ", "https://mcdash.heyim.link", ""),
-    "whitelist": ("Want to bring a friend? Whitelist them here: ", "https://mcdash.heyim.link/whitelist", ""),
-    "invite": ("How to invite a friend:\n 1. Open ", "https://mcdash.heyim.link/whitelist",
-               "\n 2. Enter their exact Minecraft username"
-               "\n 3. Finish the quick check and press submit"
-               "\n 4. They join at mc.heyim.link (Java Edition 26.3)"),
+    "dashboard": ("Stats & map: ", "https://mcdash.heyim.link", ""),
+    "whitelist": ("Whitelist a friend: ", "https://mcdash.heyim.link/whitelist", ""),
+    "invite": ("Invite a friend: enter their username at ", "https://mcdash.heyim.link/whitelist",
+               ", then they join mc.heyim.link"),
 }
 
 
 def tellraw(text, url, after=""):
     return json.dumps([
-        {"text": "[Server] ", "color": "gold", "bold": True},
+        {"text": "» ", "color": "gold", "bold": True},
         {"text": text, "color": "yellow", "bold": False},
         {"text": url, "color": "aqua", "underlined": True, "bold": False,
          "click_event": {"action": "open_url", "url": url},
