@@ -10,6 +10,8 @@ import threading
 import time
 import requests
 
+import logsync
+
 # All secrets and host-specific paths come from the environment (see .env.example).
 RCON_HOST = os.environ.get("RCON_HOST", "minecraft")
 RCON_PORT = int(os.environ.get("RCON_PORT", "25575"))
@@ -20,7 +22,7 @@ MC_HOST = os.environ.get("MC_HOST", "minecraft")
 MC_PORT = int(os.environ.get("MC_PORT", "25565"))
 MC_ADDRESS = os.environ.get("MC_ADDRESS", "mc.heyim.link")
 MAP_URL = os.environ.get("MAP_URL", "https://map.heyim.link")
-LOG_PATH = os.environ.get("LOG_PATH", "/mc/logs/latest.log")
+LOG_DIR = os.environ.get("LOG_DIR", "/mc/logs")
 # Written by the minecraft service on every start (seconds since epoch).
 STARTED_AT_PATH = os.environ.get("STARTED_AT_PATH", "/mc/run/started_at")
 # cgroup v2 memory accounting for the minecraft service, mounted read-only.
@@ -29,6 +31,7 @@ RAM_MAX_MB = float(os.environ.get("RAM_MAX_MB", "10240"))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "data", "players.db"))
 
 STATUS_CACHE_SECONDS = 10
+LOG_SYNC_SECONDS = 15
 WHITELIST_LIMIT = 5            # attempts per client...
 WHITELIST_WINDOW_SECONDS = 600  # ...per 10 minutes
 
@@ -45,112 +48,76 @@ def rcon_command(command):
 app = Flask(__name__)
 
 
+def db():
+    return sqlite3.connect(DB_PATH)
+
+
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS players (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            first_seen TIMESTAMP,
-            last_seen TIMESTAMP,
-            join_count INTEGER DEFAULT 1
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS chats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            player_name TEXT,
-            message TEXT,
-            timestamp TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(player_name, message, timestamp)
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    with db() as conn:
+        logsync.init(conn)
 
 
-def update_player(name, seen_before):
-    """Record a sighting; join_count only increases when a player newly appears online."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    now = datetime.datetime.now()
-    c.execute('SELECT id FROM players WHERE name = ?', (name,))
-    if c.fetchone():
-        if seen_before:
-            c.execute('UPDATE players SET last_seen = ? WHERE name = ?', (now, name))
-        else:
-            c.execute('UPDATE players SET last_seen = ?, join_count = join_count + 1 WHERE name = ?', (now, name))
-    else:
-        c.execute('''
-            INSERT INTO players (name, first_seen, last_seen, join_count)
-            VALUES (?, ?, ?, 1)
-        ''', (name, now, now))
-    conn.commit()
-    conn.close()
+def sync_logs():
+    """Joins and chat come from the server logs, so nothing is missed or double counted
+    no matter how often (or whether) anyone has the dashboard open."""
+    try:
+        with db() as conn:
+            logsync.sync_dir(conn, LOG_DIR)
+    except Exception as e:
+        print(f"Log sync failed: {e}")
+
+
+def log_sync_loop():
+    while True:
+        sync_logs()
+        time.sleep(LOG_SYNC_SECONDS)
 
 
 def get_recent_players(limit=20):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute('''
-        SELECT name, first_seen, last_seen, join_count
-        FROM players
-        ORDER BY last_seen DESC
-        LIMIT ?
-    ''', (limit,))
-    rows = c.fetchall()
-    conn.close()
+    with db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute('''
+            SELECT name,
+                   MIN(CASE WHEN kind = 'join' THEN at END) AS first_seen,
+                   MAX(at) AS last_seen,
+                   SUM(kind = 'join') AS join_count
+            FROM events
+            GROUP BY name
+            HAVING join_count > 0
+            ORDER BY last_seen DESC
+            LIMIT ?
+        ''', (limit,)).fetchall()
     return [dict(row) for row in rows]
-
-
-def sync_chats():
-    """Parse the server log and store new chat messages"""
-    try:
-        with open(LOG_PATH, encoding='utf-8', errors='replace') as f:
-            logs = f.read()
-
-        # Pattern: [timestamp] [Async Chat Thread - #N/INFO]: <PlayerName> message
-        pattern = r'\[(\d{2}:\d{2}:\d{2})\] \[Async Chat Thread.*?/INFO\]: <(\w+)> (.+)'
-        matches = re.findall(pattern, logs)
-
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.executemany('''
-            INSERT OR IGNORE INTO chats (player_name, message, timestamp)
-            VALUES (?, ?, ?)
-        ''', matches)
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Error syncing chats: {e}")
 
 
 def get_recent_chats(limit=50):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute('''
-        SELECT player_name, message, timestamp, created_at
-        FROM chats
-        ORDER BY id DESC
-        LIMIT ?
-    ''', (limit,))
-    rows = c.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    with db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute('''
+            SELECT player_name, message, sent_at
+            FROM chat_messages
+            ORDER BY sent_at DESC, id DESC
+            LIMIT ?
+        ''', (limit,)).fetchall()
+    today = datetime.date.today().isoformat()
+    chats = []
+    for row in rows:
+        chat = dict(row)
+        date, clock = chat["sent_at"].split(" ")
+        # Today's messages show just the time; older ones also show the date.
+        chat["timestamp"] = clock if date == today else f"{date[5:]} {clock[:5]}"
+        chats.append(chat)
+    return chats
 
 
 def get_server_day():
-    # 26.3 has no day-count query; approximate from total game time (ignores nights skipped by sleeping).
-    resp = rcon_command("time query gametime")
+    # "minecraft:" prefix: EssentialsX replaces the plain /time command.
+    resp = rcon_command("minecraft:time query minecraft:day repetition")
     if resp:
-        match = re.search(r'(\d+)', resp)
+        match = re.search(r'(\d+) repetition', resp)
         if match:
-            return int(match.group(1)) // 24000
+            return int(match.group(1))
     return None
 
 
@@ -168,7 +135,7 @@ def get_server_tps():
 
 def get_server_time():
     # 26.3 replaced "daytime" with timelines: "Timeline minecraft:day is at N tick(s)"
-    resp = rcon_command("time query minecraft:day")
+    resp = rcon_command("minecraft:time query minecraft:day")
     if resp:
         match = re.search(r'(\d+) tick', resp)
         if match:
@@ -192,9 +159,10 @@ def read_number(path):
 
 
 init_db()
+threading.Thread(target=log_sync_loop, daemon=True).start()
 
 _status_lock = threading.Lock()
-_status_cache = {"at": 0.0, "data": None, "icon": None, "online_names": set()}
+_status_cache = {"at": 0.0, "data": None, "icon": None}
 
 
 def build_status():
@@ -206,13 +174,7 @@ def build_status():
                 "recent_chats": get_recent_chats(20), "current_players": []}
 
     current_players = [p.name for p in (mcstatus.players.sample or [])]
-    previous = _status_cache["online_names"]
-    for name in current_players:
-        update_player(name, name in previous)
-    _status_cache["online_names"] = set(current_players)
     _status_cache["icon"] = mcstatus.icon
-
-    sync_chats()
 
     mem_bytes = read_number(MEMORY_CURRENT_PATH)
     started_at = read_number(STARTED_AT_PATH)
