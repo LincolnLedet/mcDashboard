@@ -4,92 +4,227 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MC Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        mc: {
-                            dark: '#1a1a1a',
-                            darker: '#121212',
-                            green: '#4ade80',
-                            gray: '#2a2a2a'
-                        }
-                    }
-                }
-            }
+    <link rel="icon" type="image/png" href="/server-icon.png?v={{ icon_v }}">
+    <style>
+        /* Terminal look. Colours are the ones the terminal dashboard (mcmon) uses. */
+        :root {
+            color-scheme: dark;
+            --bg: #0b0e14;
+            --panel: #0e121a;
+            --border: #465a82;
+            --title: #78c8ff;
+            --label: #8c96aa;
+            --text: #dce1eb;
+            --muted: #7d8499;
+            --good: #50dc78;
+            --warn: #ffc83c;
+            --bad: #ff5050;
+            --hover: #151b27;
+            --font: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
         }
-    </script>
+        * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #2e3850 transparent; }
+        *::-webkit-scrollbar { width: 10px; height: 10px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb { background: #2e3850; border-radius: 9999px; border: 2px solid var(--panel); }
+        *::-webkit-scrollbar-thumb:hover { background: var(--good); }
+        html { scrollbar-color: #2e3850 var(--bg); background: var(--bg); }
+        html::-webkit-scrollbar-track { background: var(--bg); }
+        html::-webkit-scrollbar-thumb { border-color: var(--bg); }
+        body {
+            margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+            font: 14px/1.55 var(--font); text-shadow: 0 0 6px rgba(120, 200, 255, .12);
+        }
+        /* faint CRT: scanlines + vignette. Never blocks clicks. */
+        body::before, body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50; }
+        body::before { background: repeating-linear-gradient(to bottom, rgba(255,255,255,.022) 0, rgba(255,255,255,.022) 1px, transparent 1px, transparent 3px); }
+        body::after { background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.35) 100%); }
+        a { color: var(--title); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .wrap { max-width: 1280px; margin: 0 auto; padding: 18px 16px 28px; }
+
+        /* header */
+        .top { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+        .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .brand img { width: 36px; height: 36px; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; }
+        .brand h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .28em; color: var(--title); text-transform: uppercase; text-shadow: 0 0 10px rgba(120,200,255,.45); }
+        .brand h1 span { color: var(--muted); font-weight: 400; }
+        .clock { color: var(--label); white-space: pre; }
+        .clock #spin { color: var(--title); display: inline-block; width: 1.2em; }
+        .rule { height: 2px; margin: 10px 0 22px; background: linear-gradient(90deg, #223153, var(--title), #b4a0ff, var(--title), #223153); background-size: 200% 100%; animation: slide 9s linear infinite; opacity: .8; }
+        @keyframes slide { to { background-position: -200% 0; } }
+        .prompt { color: var(--label); margin-bottom: 18px; overflow-wrap: anywhere; }
+        .prompt .ps { color: var(--good); } .prompt .path { color: var(--title); } .prompt .cmd { color: var(--text); }
+        .cursor { display: inline-block; width: .6em; background: var(--text); margin-left: 2px; animation: blink 1.1s steps(1) infinite; color: transparent; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* event banner from data/announcement.json, with a countdown; gone after a reload once its time passes */
+        .announce { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 28px; border: 2px solid var(--warn); border-radius: 12px; background: rgba(255, 200, 60, .08); box-shadow: 0 0 22px rgba(255, 200, 60, .18); color: var(--text); padding: 18px 22px; margin-bottom: 26px; font-size: 16px; overflow-wrap: anywhere; }
+        .announce .what { flex: 1 1 340px; min-width: 0; }
+        .announce .what b { display: block; color: var(--warn); font-size: 22px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 4px; text-shadow: 0 0 12px rgba(255, 200, 60, .45); }
+        .announce .countdown { flex: 0 0 auto; text-align: center; }
+        .announce .countdown span { display: block; color: var(--label); font-size: 12px; letter-spacing: .2em; text-transform: uppercase; }
+        .announce .countdown time { display: block; color: var(--warn); font-size: 34px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; text-shadow: 0 0 14px rgba(255, 200, 60, .55); }
+        /* last 15 minutes */
+        .announce.soon { border-color: var(--bad); background: rgba(255, 80, 80, .09); box-shadow: 0 0 26px rgba(255, 80, 80, .3); }
+        .announce.soon .what b, .announce.soon .countdown time { color: var(--bad); text-shadow: 0 0 14px rgba(255, 80, 80, .6); }
+        .announce.done { justify-content: center; text-align: center; border-color: var(--good); background: rgba(80, 220, 120, .08); box-shadow: 0 0 26px rgba(80, 220, 120, .25); }
+        .announce.done b { color: var(--good); font-size: 30px; letter-spacing: .16em; text-transform: uppercase; text-shadow: 0 0 14px rgba(80, 220, 120, .55); }
+        .announce.done { flex-direction: column; gap: 14px; }
+        .announce.done img { display: block; width: 260px; max-width: 100%; height: auto; border: 1px solid var(--good); border-radius: 8px; }
+        @media (max-width: 600px) { .announce .countdown { flex-basis: 100%; } .announce .countdown time { font-size: 28px; } }
+
+        .join { border: 1px solid var(--good); color: var(--good); padding: 3px 12px; border-radius: 4px; text-transform: uppercase; letter-spacing: .12em; font-size: 12px; text-shadow: none; }
+        .join:hover { background: var(--good); color: var(--bg); text-decoration: none; }
+
+        /* boxes with the title set into the top border, like the terminal panels */
+        .box { position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 20px 16px 14px; margin-bottom: 26px; min-width: 0; }
+        .box .tt { position: absolute; top: -.8em; left: 16px; padding: 0 .6em; background: var(--bg); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; animation: glow 14s ease-in-out infinite; }
+        .box .meta { position: absolute; top: -.8em; right: 16px; padding: 0 .6em; background: var(--bg); color: var(--muted); font-size: 12px; }
+        @keyframes glow { 0%, 100% { color: #78c8ff; } 33% { color: #a0e68c; } 66% { color: #bea0ff; } }
+
+        .grid2 { display: grid; gap: 26px; grid-template-columns: 1fr; }
+        @media (min-width: 1024px) { .grid2 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+
+        /* status bar + one box per stat */
+        .statusline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 24px; align-items: baseline; }
+        .cards { display: grid; gap: 26px 20px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 26px; }
+        @media (min-width: 1100px) { .cards { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+        .cards .box { margin-bottom: 0; padding: 18px 14px 12px; }
+        .cards .loading { grid-column: 1 / -1; }
+        .big { font-size: 22px; font-weight: 700; line-height: 1.25; }
+        .big small { font-size: 14px; font-weight: 400; color: var(--muted); }
+        .sub { color: var(--muted); font-size: 12px; min-height: 1.5em; }
+        .bar { white-space: pre; letter-spacing: 0; font-variant-ligatures: none; display: block; margin-top: 2px; }
+        .bar .off { color: #232a3a; }
+        .dim { color: var(--muted); }
+        .on { color: var(--good); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+        .pulse { animation: pulse 2.2s ease-in-out infinite; }
+        @keyframes pulse { 50% { opacity: .45; } }
+        .world { display: flex; align-items: center; gap: 10px; }
+        #sky-icon svg { width: 34px; height: 34px; display: block; }
+        #sky-label { display: block; font-size: 12px; margin-top: 2px; }
+
+        iframe { display: block; width: 100%; height: 440px; border: 1px solid #1b2231; border-radius: 8px; background: #0b0e14; }
+        @media (min-width: 1024px) { iframe { height: 500px; } }
+
+        /* players */
+        .tgl { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed #2a3248; color: var(--label); font-size: 12px; cursor: pointer; }
+        .tgl input { accent-color: var(--title); margin: 0; }
+        .beta-tag { color: var(--warn); font-size: 10px; letter-spacing: .14em; border: 1px solid var(--warn); border-radius: 4px; padding: 0 4px; text-transform: uppercase; }
+        #players-list { max-height: 500px; overflow-y: auto; margin: 0 -8px; padding: 0 4px 0 8px; }
+        .prow { display: flex; align-items: baseline; padding: 3px 8px; border-radius: 4px; border-left: 2px solid transparent; }
+        .prow.loc { cursor: pointer; }
+        .prow.loc:hover { background: var(--hover); border-left-color: var(--title); }
+        .prow .dot { display: inline-block; width: 1.6ch; }
+        .prow .leader { flex: 1; border-bottom: 1px dotted #2a3248; margin: 0 .7em; transform: translateY(-.35em); min-width: 1ch; }
+        .prow .pj { color: var(--muted); font-size: 12px; white-space: nowrap; }
+        .prow .go { color: var(--muted); font-size: 12px; }
+
+        /* chat */
+        #chat-container { height: 420px; overflow-y: auto; margin-right: -6px; padding-right: 8px; overflow-anchor: none; }
+        .chat-top { color: var(--muted); font-size: 12px; text-align: center; padding: 2px 0 6px; }
+        .day { display: flex; align-items: center; gap: .8em; color: var(--label); font-size: 12px; margin: 8px 0 4px; }
+        .day::before, .day::after { content: ""; flex: 1; border-top: 1px dotted #2a3248; }
+        .cl { padding: 1px 0; overflow-wrap: anywhere; }
+        .cl .ts { color: var(--muted); }
+        .cl .msg { color: var(--text); }
+        /* activity lines: joins, leaves, deaths, advancements */
+        .cl.ev-join .ev-icon { color: var(--good); } .cl.ev-join .ev-text { color: #7fbf94; }
+        .cl.ev-leave .ev-icon { color: #e68c5a; } .cl.ev-leave .ev-text { color: var(--muted); }
+        .cl.ev-death .ev-icon { color: var(--bad); } .cl.ev-death .ev-text { color: #d98a8a; }
+        .cl.ev-adv .ev-icon { color: var(--warn); } .cl.ev-adv .ev-text { color: #e6c46a; }
+        .cl.ev-server .ev-icon, .cl.ev-server .ev-name { color: var(--title); } .cl.ev-server .ev-text { color: var(--text); font-weight: 700; }
+        .cl.ev-join, .cl.ev-leave { opacity: .9; }
+        .foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+        .foot a { color: var(--label); }
+        .loading { color: var(--muted); }
+
+        @media (max-width: 560px) {
+            body { font-size: 13px; }
+            .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 14px; }
+            .big { font-size: 20px; }
+            .brand h1 { letter-spacing: .14em; font-size: 13px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .rule, .cursor, .pulse, .box .tt { animation: none; }
+            .box .tt { color: var(--title); }
+        }
+    </style>
 </head>
-<body class="bg-mc-darker text-gray-100 min-h-screen">
-    <div class="max-w-7xl mx-auto px-4 py-8">
-        <!-- Header -->
-        <header class="mb-8 flex justify-between items-center">
-            <div class="flex items-center gap-4">
-                <img src="/server-icon.png" alt="Server Icon" class="w-16 h-16 rounded-lg">
-                <div>
-                    <h1 class="text-3xl font-bold text-mc-green">Minecraft Server</h1>
-                    <p class="text-gray-500 mt-1">Live dashboard</p>
-                </div>
+<body>
+    <div class="wrap">
+        <header class="top">
+            <div class="brand">
+                <img src="/server-icon.png?v={{ icon_v }}" alt="">
+                <h1>MC.HEYIM.LINK <span>· live monitor</span></h1>
             </div>
-            <a href="/whitelist" class="bg-mc-green hover:bg-green-400 text-black font-semibold px-4 py-2 rounded-lg transition">
-                Join Server
-            </a>
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                <span class="clock"><span id="spin">⣾</span><span id="clock"></span></span>
+                <a href="/whitelist" class="join">Join server</a>
+            </div>
         </header>
+        <div class="rule"></div>
+        {% if announcement %}
+        <div class="announce" id="announce" data-until="{{ announcement.until_ms }}"><div class="what"><b>{{ announcement.title }}</b>{{ announcement.text }}</div><div class="countdown"><span>starts in</span><time id="announce-left"></time></div></div>
+        <script>
+            // counts down to the event; when it starts, open pages say good luck (a reload no longer shows the banner)
+            (function () {
+                const el = document.getElementById('announce');
+                const out = document.getElementById('announce-left');
+                const until = Number(el.dataset.until);
+                const pad = n => String(n).padStart(2, '0');
+                const meme = new Image();  // fetched early so it shows the moment the timer ends
+                meme.src = '/static/raid-done.gif';
+                meme.alt = 'A white cat dancing: when I beet the ender dragon :)';
+                function tick() {
+                    const s = Math.floor((until - Date.now()) / 1000);
+                    if (s <= 0) {
+                        el.classList.remove('soon');
+                        el.classList.add('done');
+                        el.innerHTML = '<b>Good luck, soldier!</b>';
+                        el.appendChild(meme);
+                        return;
+                    }
+                    el.classList.toggle('soon', s <= 15 * 60);
+                    const d = Math.floor(s / 86400), h = Math.floor(s / 3600) % 24, m = Math.floor(s / 60) % 60;
+                    out.textContent = (d ? d + 'd ' : '') + (d || h ? h + 'h ' : '') + pad(m) + 'm ' + pad(s % 60) + 's';
+                    setTimeout(tick, 1000 - Date.now() % 1000);
+                }
+                tick();
+            })();
+        </script>
+        {% endif %}
 
-        <!-- Status Banner -->
-        <div id="status-banner" class="bg-mc-dark rounded-lg p-4 mb-6 flex items-center justify-between">
-            <div class="text-gray-500">Loading...</div>
+        <section class="box">
+            <div class="tt">Status</div>
+            <div class="statusline" id="status-banner"><span class="loading">connecting...</span></div>
+        </section>
+
+        <div class="cards" id="stats-grid"></div>
+
+        <div class="grid2">
+            <section class="box">
+                <div class="tt">Live map</div>
+                <iframe id="map-frame" src="{{ map_url }}/?territories" frameborder="0" title="Live map"></iframe>
+            </section>
+
+            <section class="box">
+                <div class="tt">Players</div>
+                <div class="meta" id="players-count">0 tracked</div>
+                <div id="players-list"><div class="loading">reading logs...</div></div>
+                <label class="tgl"><input type="checkbox" id="terr-toggle"> show territories on the map <span class="beta-tag">beta</span></label>
+            </section>
         </div>
 
-        <!-- Stats Grid -->
-        <div id="stats-grid" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-        </div>
+        <section class="box">
+            <div class="tt">Chat &amp; activity</div>
+            <div class="meta" id="chat-count">0 messages</div>
+            <div id="chat-container"><div class="loading">reading logs...</div></div>
+        </section>
 
-        <!-- Main Content Grid -->
-        <div class="grid lg:grid-cols-3 gap-6 mb-6">
-            <!-- Map (static, never refreshes) -->
-            <div class="lg:col-span-2 bg-mc-dark rounded-lg overflow-hidden">
-                <div class="px-4 py-3 border-b border-mc-gray">
-                    <h2 class="font-semibold">Live Map</h2>
-                </div>
-                <iframe
-                    src="{{ map_url }}"
-                    class="w-full h-96 lg:h-[500px]"
-                    frameborder="0"
-                ></iframe>
-            </div>
-
-            <!-- Players -->
-            <div class="bg-mc-dark rounded-lg">
-                <div class="px-4 py-3 border-b border-mc-gray flex justify-between items-center">
-                    <h2 class="font-semibold">Players</h2>
-                    <span id="players-count" class="text-xs text-gray-500">0 tracked</span>
-                </div>
-                <div id="players-list" class="p-4 space-y-3 max-h-[500px] overflow-y-auto">
-                    <div class="text-gray-500 text-center py-8">Loading...</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Chat -->
-        <div class="bg-mc-dark rounded-lg">
-            <div class="px-4 py-3 border-b border-mc-gray flex justify-between items-center">
-                <h2 class="font-semibold">Chat</h2>
-                <span id="chat-count" class="text-xs text-gray-500">0 messages</span>
-            </div>
-            <div id="chat-container" class="p-4 font-mono text-sm space-y-1 max-h-64 overflow-y-auto flex flex-col-reverse">
-                <div class="text-gray-500 text-center py-8">Loading...</div>
-            </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="mt-6 flex justify-between items-center text-xs text-gray-600">
-            <span>Auto-refreshes every 10s</span>
-            <div class="flex items-center gap-4">
-                <a href="https://heyim.link" target="_blank" class="hover:text-mc-green transition">Built by heyim.link</a>
-            </div>
+        <div class="foot">
+            <span>auto-refresh 10s · chat every 5s, scroll up for older messages · click a player to find them (⌖) or their territory (⌂) on the map</span>
+            <a href="https://heyim.link" target="_blank" rel="noopener">built by heyim.link</a>
         </div>
     </div>
 
@@ -109,93 +244,309 @@
             return `${mins}m`;
         }
 
+        // ---- Header: spinner + clock, like the terminal dashboard.
+        const SPIN = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
+        const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        function tickClock() {
+            const d = new Date();
+            const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit' }).replace(',', '');
+            document.getElementById('clock').textContent = ` ${day}  ${d.toLocaleTimeString('en-GB')}`;
+        }
+        tickClock(); setInterval(tickClock, 1000);
+        if (!reducedMotion) setInterval(() => { document.getElementById('spin').textContent = SPIN[Math.floor(Date.now() / 125) % 8]; }, 125);
+
+        // ---- Block-character bars, coloured green -> yellow -> red like the terminal dashboard.
+        function barWidth() { return window.innerWidth < 560 ? 12 : 16; }
+        function levelColor(frac) {
+            const f = Math.min(Math.max(frac, 0), 1);
+            return `hsl(${Math.round(135 - 135 * Math.min(Math.max((f - 0.45) / 0.5, 0), 1))} 72% 58%)`;
+        }
+        function textBar(frac, color) {
+            const w = barWidth(), f = Math.min(Math.max(Number.isFinite(frac) ? frac : 0, 0), 1);
+            const filled = Math.round(f * w);
+            return `<span class="bar"><span style="color:${color || levelColor(f)}">${'█'.repeat(filled)}</span><span class="off">${'█'.repeat(w - filled)}</span></span>`;
+        }
+
+        // ---- Player colours: the same palette and CRC-32 rule as the terminal dashboard (mcmon), so a player
+        // is the same colour everywhere. Chosen from the name only, so it never changes.
+        const PLAYER_COLORS = ['#78c8ff', '#ff96c8', '#a0e68c', '#ffc86e', '#bea0ff', '#78e6dc', '#ff8278'];
+        const CRC_TABLE = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+        function crc32(text) {
+            let c = 0xFFFFFFFF;
+            for (const b of new TextEncoder().encode(text)) c = CRC_TABLE[(c ^ b) & 0xFF] ^ (c >>> 8);
+            return (c ^ 0xFFFFFFFF) >>> 0;
+        }
+        function playerColor(name) { return PLAYER_COLORS[crc32(String(name ?? '')) % PLAYER_COLORS.length]; }
+
+        // ---- Click a player: point the map at them. BlueMap re-reads the part after "#" of its address
+        // (map:x:y:z:distance:rotation:angle:tilt:ortho:view) whenever it changes, so only that part is set.
+        const MAP_BASE = {{ map_url|tojson }};
+        let playerLocations = {};
+        // Offline players jump to the centre of their main territory instead (from the territory map data).
+        let territorySeats = {};
+        fetch('/realms/data.json').then(r => r.ok ? r.json() : null).then(d => {
+            for (const r of d?.realms || []) if (r.capital) territorySeats[r.player] = { map: 'world', x: r.seat[0], y: r.seat_y, z: r.seat[1], home: true };
+        }).catch(() => {});
+        function showOnMap(name) {
+            const loc = playerLocations[name] || territorySeats[name];
+            const frame = document.getElementById('map-frame');
+            if (!loc || !frame) return;
+            const url = new URL(MAP_BASE);
+            url.search = '?territories';   // same page as the iframe, so only the position changes (no reload)
+            url.hash = `${loc.map}:${loc.x}:${loc.y}:${loc.z}:${loc.home ? 400 : 150}:0:0.8:0:0:perspective`;
+            frame.src = url.toString();
+            frame.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // ---- Territories (beta): the live map runs BlueMap with mcdash's territories.js, which draws nothing
+        // until this page posts the territory data. The checkbox choice is remembered in this browser.
+        (() => {
+            const frame = document.getElementById('map-frame'), box = document.getElementById('terr-toggle');
+            const MAP_ORIGIN = new URL(MAP_BASE).origin;
+            let data = null, ready = false;
+            try { box.checked = localStorage.getItem('mcdash.territories') === '1'; } catch (e) {}
+            const sync = async () => {
+                if (!ready) return;
+                if (box.checked && !data) {
+                    try { data = await (await fetch('/realms/data.json')).json(); } catch (e) { return; }
+                }
+                if (data) frame.contentWindow.postMessage({ type: 'heyim-territories', data }, MAP_ORIGIN);
+                frame.contentWindow.postMessage({ type: 'heyim-show', territories: box.checked, outposts: true }, MAP_ORIGIN);
+                frame.contentWindow.postMessage({ type: 'heyim-filter', on: box.checked }, MAP_ORIGIN);   // darken only with territories on
+            };
+            window.addEventListener('message', e => {
+                if (e.origin !== MAP_ORIGIN || e.source !== frame.contentWindow || e.data?.type !== 'heyim-ready') return;
+                ready = true; sync();
+            });
+            box.addEventListener('change', () => {
+                try { localStorage.setItem('mcdash.territories', box.checked ? '1' : '0'); } catch (e) {}
+                sync();
+            });
+        })();
+
+        // ---- World time: sun / moon. 0 ticks = 6:00 AM, 20 ticks per real second, 24000 per game day.
+        const worldClock = { ticks: null, at: 0 };
+        const SKY = {
+            sunrise: { name: 'Sunrise', color: '#fdba74', next: 'Daylight', nextAt: 1000 },
+            day:     { name: 'Day',     color: '#fbbf24', next: 'Sunset',   nextAt: 11500 },
+            sunset:  { name: 'Sunset',  color: '#fb923c', next: 'Night',    nextAt: 13000 },
+            night:   { name: 'Night',   color: '#93c5fd', next: 'Sunrise',  nextAt: 23000 },
+        };
+        function skyPhase(t) {
+            if (t >= 23000 || t < 1000) return 'sunrise';
+            if (t < 11500) return 'day';
+            if (t < 13000) return 'sunset';
+            return 'night';
+        }
+        function skyIcon(phase) {
+            const c = SKY[phase].color;
+            if (phase === 'day') {
+                const rays = [0, 45, 90, 135, 180, 225, 270, 315].map(a => `<line x1="20" y1="3" x2="20" y2="8" transform="rotate(${a} 20 20)"/>`).join('');
+                return `<svg viewBox="0 0 40 40" aria-label="Sun"><g stroke="${c}" stroke-width="2.5" stroke-linecap="round">
+                    <g><animateTransform attributeName="transform" type="rotate" from="0 20 20" to="360 20 20" dur="40s" repeatCount="indefinite"/>${rays}</g></g>
+                    <circle cx="20" cy="20" r="9" fill="${c}"><animate attributeName="r" values="9;9.8;9" dur="3s" repeatCount="indefinite"/></circle></svg>`;
+            }
+            if (phase === 'night') {
+                return `<svg viewBox="0 0 40 40" aria-label="Moon">
+                    <path d="M26 6a14 14 0 1 0 8 24A12 12 0 0 1 26 6z" fill="#e5e7eb"/>
+                    <g fill="${c}"><circle cx="8" cy="9" r="1.3"><animate attributeName="opacity" values="1;.2;1" dur="2.4s" repeatCount="indefinite"/></circle>
+                    <circle cx="33" cy="12" r="1"><animate attributeName="opacity" values=".3;1;.3" dur="3s" repeatCount="indefinite"/></circle>
+                    <circle cx="14" cy="33" r="1.1"><animate attributeName="opacity" values=".5;1;.2;.5" dur="2.8s" repeatCount="indefinite"/></circle></g></svg>`;
+            }
+            // sunrise / sunset: half sun on the horizon
+            const rays = [-60, -30, 0, 30, 60].map(a => `<line x1="20" y1="6" x2="20" y2="11" transform="rotate(${a} 20 25)"/>`).join('');
+            return `<svg viewBox="0 0 40 40" aria-label="${SKY[phase].name}">
+                <g stroke="${c}" stroke-width="2.5" stroke-linecap="round">${rays}</g>
+                <path d="M10 25a10 10 0 0 1 20 0z" fill="${c}"><animate attributeName="opacity" values="1;.75;1" dur="3s" repeatCount="indefinite"/></path>
+                <line x1="4" y1="27" x2="36" y2="27" stroke="${c}" stroke-width="2.5" stroke-linecap="round"/>
+                <line x1="10" y1="32" x2="30" y2="32" stroke="${c}" stroke-width="2" stroke-linecap="round" opacity=".5"/></svg>`;
+        }
+        function renderSky() {
+            const iconEl = document.getElementById('sky-icon');
+            if (!iconEl) return;
+            const label = document.getElementById('sky-label');
+            if (worldClock.ticks === null) { iconEl.innerHTML = ''; label.textContent = ''; return; }
+            // keep moving between server polls (20 ticks per second)
+            const t = (worldClock.ticks + (Date.now() - worldClock.at) / 50) % 24000;
+            const phase = skyPhase(t);
+            if (iconEl.dataset.phase !== phase) { iconEl.innerHTML = skyIcon(phase); iconEl.dataset.phase = phase; }
+            const info = SKY[phase];
+            let until = info.nextAt - t; if (until < 0) until += 24000;
+            const secs = Math.round(until / 20);
+            const left = secs >= 60 ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, '0')}s` : `${secs}s`;
+            label.innerHTML = `<span style="color:${info.color}">${info.name}</span> <span class="dim">· ${info.next.toLowerCase()} in ${left}</span>`;
+            const hours = Math.floor(((t / 1000) + 6) % 24), mins = Math.floor((t % 1000) * 0.06);
+            document.getElementById('world-clock').textContent = `${hours % 12 || 12}:${String(mins).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+        }
+        setInterval(renderSky, 1000);
+
         async function fetchStatus() {
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
 
                 const players = data.player_history || [];
-                const chats = data.recent_chats || [];
                 const currentPlayers = data.current_players || [];
 
-                // Update status banner
-                document.getElementById('status-banner').innerHTML = `
-                    <div class="flex items-center gap-4">
-                        <div class="w-3 h-3 rounded-full ${data.online ? 'bg-mc-green' : 'bg-red-500'} animate-pulse"></div>
-                        <div>
-                            <span class="font-semibold">${data.online ? 'Online' : 'Offline'}</span>
-                            <span class="text-gray-500 ml-2">${esc(data.address)}</span>
-                            <span class="text-gray-500 ml-2">${esc(data.version_name)}</span>
-                        </div>
-                    </div>
-                    <div class="text-gray-400 text-sm">${esc(data.motd)}</div>
-                `;
+                // STATUS bar + one box per stat
+                const online = !!data.online;
+                document.getElementById('status-banner').innerHTML = (online
+                    ? `<span><span class="on pulse">●</span> <span class="on"><b>ONLINE</b></span> <span class="dim">${esc(data.address)} · ${esc(data.version_name)}</span></span>`
+                    : `<span><span class="bad pulse">●</span> <span class="bad"><b>OFFLINE</b></span></span>`)
+                    + `<span class="dim">${esc(data.motd || '')}</span>`;
+                const pOn = data.players_online, pMax = data.players_max;
+                // Memory box: only the server's Java heap (from EssentialsX /gc), like the heap line in the terminal dashboard.
+                const heapUsed = data.heap_used_mb, heapMax = data.heap_max_mb;
+                const haveHeap = heapUsed != null && heapMax;
+                const heapFrac = haveHeap ? heapUsed / heapMax : NaN;
+                const cpuNum = typeof data.cpu_pct === 'number' ? data.cpu_pct : NaN;
+                const cpuSub = [typeof data.server_cpu_pct === 'number' ? `server ${data.server_cpu_pct.toFixed(1)}%` : '', Array.isArray(data.load) ? `load ${data.load[0].toFixed(1)}` : ''].filter(Boolean).join(' · ');
+                const tpsClass = data.tps >= 19 ? 'on' : data.tps >= 15 ? 'warn' : 'bad';
+                const tpsColor = data.tps >= 19 ? 'var(--good)' : data.tps >= 15 ? 'var(--warn)' : 'var(--bad)';
+                const card = (title, body) => `<section class="box"><div class="tt">${title}</div>${body}</section>`;
+                document.getElementById('stats-grid').innerHTML = [
+                    card('Players', `<div class="big">${esc(pOn ?? '-')}<small>/${esc(pMax ?? '-')}</small></div>${textBar(pMax ? pOn / pMax : 0, '#78c8ff')}`),
+                    card('Server heap', `<div class="big">${haveHeap ? (heapUsed / 1024).toFixed(1) : '-'}<small> / ${haveHeap ? (heapMax / 1024).toFixed(0) : '-'} GB</small></div>${textBar(heapFrac)}<div class="sub">${haveHeap ? Math.round(heapFrac * 100) + '% of the Java heap' : ''}</div>`),
+                    card('CPU', `<div class="big">${Number.isFinite(cpuNum) ? cpuNum.toFixed(1) : '-'}<small>%</small></div>${textBar(cpuNum / 100)}<div class="sub">${cpuSub}</div>`),
+                    card('Uptime', `<div class="big">${formatUptime(data.uptime_seconds)}</div><div class="sub">since last restart</div>`),
+                    card('TPS', `<div class="big ${tpsClass}">${typeof data.tps === 'number' ? data.tps.toFixed(1) : '-'}<small> / 20</small></div>${typeof data.tps === 'number' ? textBar(data.tps / 20, tpsColor) : ''}${typeof data.view_distance === 'number' ? `<div class="sub">render ${data.view_distance} · sim ${data.sim_distance} chunks</div>` : ''}`),
+                    card('World time', `<div class="world"><div><div class="big">Day ${esc(data.server_day ?? '-')}</div><div class="sub" id="world-clock">${esc(data.server_time || '-')}</div></div><div id="sky-icon"></div></div><div id="sky-label"></div>`),
+                ].join('');
+                worldClock.ticks = typeof data.server_ticks === 'number' ? data.server_ticks : null;
+                worldClock.at = Date.now();
+                renderSky();
 
-                // Update stats grid
-                document.getElementById('stats-grid').innerHTML = `
-                    <div class="bg-mc-dark rounded-lg p-4">
-                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">Players</div>
-                        <div class="text-2xl font-bold">${esc(data.players_online ?? '-')}<span class="text-gray-500 text-lg">/${esc(data.players_max ?? '-')}</span></div>
-                    </div>
-                    <div class="bg-mc-dark rounded-lg p-4">
-                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">RAM</div>
-                        <div class="text-sm font-bold mb-2">${data.ram_mb !== null && data.ram_mb !== undefined ? Math.round(data.ram_mb) : '-'}<span class="text-gray-500"> / ${Math.round(data.ram_max_mb)} MB</span></div>
-                        <div class="w-full bg-mc-darker rounded-full h-2">
-                            <div class="h-2 rounded-full transition-all ${data.ram_mb / data.ram_max_mb > 0.8 ? 'bg-red-500' : data.ram_mb / data.ram_max_mb > 0.6 ? 'bg-yellow-500' : 'bg-mc-green'}" style="width: ${Math.min((data.ram_mb / data.ram_max_mb) * 100, 100)}%"></div>
-                        </div>
-                    </div>
-                    <div class="bg-mc-dark rounded-lg p-4">
-                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">Uptime</div>
-                        <div class="text-2xl font-bold">${formatUptime(data.uptime_seconds)}</div>
-                    </div>
-                    <div class="bg-mc-dark rounded-lg p-4">
-                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">TPS</div>
-                        <div class="text-2xl font-bold ${data.tps >= 19 ? 'text-mc-green' : data.tps >= 15 ? 'text-yellow-500' : 'text-red-500'}">${typeof data.tps === 'number' ? data.tps.toFixed(1) : '-'}</div>
-                    </div>
-                    <div class="bg-mc-dark rounded-lg p-4">
-                        <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">World Time</div>
-                        <div class="text-xl font-bold">Day ${esc(data.server_day ?? '-')}</div>
-                        <div class="text-sm text-gray-400">${esc(data.server_time || '-')}</div>
-                    </div>
-                `;
-
-                // Update players
+                // Players: online first; everyone else stays in the server's order (most recently active first).
                 document.getElementById('players-count').textContent = `${players.length} tracked`;
-                document.getElementById('players-list').innerHTML = players.length > 0 ? players.map(p => `
-                    <div class="flex items-center justify-between p-3 bg-mc-darker rounded-lg">
-                        <div>
-                            <div class="font-medium ${currentPlayers.includes(p.name) ? 'text-mc-green' : 'text-gray-300'}">
-                                ${currentPlayers.includes(p.name) ? '● ' : ''}${esc(p.name)}
-                            </div>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-xs text-gray-500">${esc(p.join_count)} joins</div>
-                        </div>
-                    </div>
-                `).join('') : '<div class="text-gray-500 text-center py-8">No players yet</div>';
-
-                // Update chat
-                document.getElementById('chat-count').textContent = `${chats.length} messages`;
-                document.getElementById('chat-container').innerHTML = `<div>
-                    ${chats.length > 0 ? chats.map(c => `
-                        <div class="py-1">
-                            <span class="text-gray-600">[${esc(c.timestamp)}]</span>
-                            <span class="text-mc-green">&lt;${esc(c.player_name)}&gt;</span>
-                            <span class="text-gray-300">${esc(c.message)}</span>
-                        </div>
-                    `).join('') : '<div class="text-gray-500 text-center py-8">No messages yet</div>'}
-                </div>`;
+                const orderedPlayers = [...players].sort((a, b) => currentPlayers.includes(b.name) - currentPlayers.includes(a.name));
+                playerLocations = data.player_locations || {};
+                document.getElementById('players-list').innerHTML = orderedPlayers.length > 0 ? orderedPlayers.map(p => {
+                    const isOn = currentPlayers.includes(p.name), live = !!playerLocations[p.name], home = !live && !!territorySeats[p.name], loc = live || home;
+                    const tip = live ? `Show ${esc(p.name)} on the map` : `Show ${esc(p.name)}'s territory on the map`;
+                    return `<div class="prow${loc ? ' loc' : ''}" ${loc ? `data-locate="${esc(p.name)}" title="${tip}"` : ''}>
+                        <span class="dot ${isOn ? 'on pulse' : 'dim'}">${isOn ? '●' : '○'}</span>
+                        <span style="color:${playerColor(p.name)};${isOn ? '' : 'opacity:.6'}">${esc(p.name)}</span>${live ? ' <span class="go" aria-hidden="true">⌖</span>' : home ? ' <span class="go" aria-hidden="true">⌂</span>' : ''}
+                        <span class="leader"></span>
+                        <span class="pj">${esc(p.join_count)} joins</span>
+                    </div>`;
+                }).join('') : '<div class="loading">no players yet</div>';
 
             } catch (err) {
-                document.getElementById('status-banner').innerHTML = `
-                    <div class="text-red-400">Failed to load: ${esc(err.message)}</div>
-                    <button onclick="fetchStatus()" class="px-3 py-1 bg-mc-gray rounded hover:bg-gray-700 transition">Retry</button>
+                document.getElementById('stats-grid').innerHTML = `
+                    <div class="bad">failed to load: ${esc(err.message)}</div>
+                    <div><a href="#" onclick="fetchStatus(); return false;">[ retry ]</a></div>
                 `;
             }
         }
 
+        // ---- Chat and activity (joins, leaves, deaths, advancements, server announcements), shown like in-game
+        // chat: oldest at the top, newest at the bottom. New messages are polled every 5 s; scrolling to the top
+        // loads the page before the oldest one shown, back to the start of the logs.
+        const chatBox = document.getElementById('chat-container');
+        const chat = { newestId: null, oldestId: null, firstDay: null, lastDay: null, loading: false, more: true, seen: new Set() };
+        const EVENT_STYLE = {
+            join:        { icon: '→', cls: 'ev-join' },
+            leave:       { icon: '←', cls: 'ev-leave' },
+            death:       { icon: '☠', cls: 'ev-death' },
+            advancement: { icon: '★', cls: 'ev-adv' },
+            server:      { icon: '»', cls: 'ev-server' },
+        };
+        function dayLabel(date) {
+            const d = new Date(date + 'T12:00:00');
+            const opts = { weekday: 'short', month: 'short', day: 'numeric' };
+            if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+            return d.toLocaleDateString('en-US', opts);
+        }
+        function dayDivider(date) { return `<div class="day" data-day="${esc(date)}">${esc(dayLabel(date))}</div>`; }
+        function chatLine(c) {
+            const ts = `<span class="ts">[${esc(c.sent_at.split(' ')[1])}]</span>`;
+            const ev = EVENT_STYLE[c.kind];
+            if (!ev) return `<div class="cl">${ts} <span style="color:${playerColor(c.player_name)}">&lt;${esc(c.player_name)}&gt;</span> <span class="msg">${esc(c.message)}</span></div>`;
+            const name = c.kind === 'server' ? `<span class="ev-name">[Server]</span>` : `<span style="color:${playerColor(c.player_name)}">${esc(c.player_name)}</span>`;
+            return `<div class="cl ${ev.cls}">${ts} <span class="ev-icon">${ev.icon}</span> ${name} <span class="ev-text">${esc(c.message)}</span></div>`;
+        }
+        // Oldest-first messages -> HTML with a divider wherever the day changes; `prevDay` is the day just above.
+        function chatHtml(oldestFirst, prevDay) {
+            let day = prevDay, html = '';
+            for (const c of oldestFirst) {
+                const d = c.sent_at.split(' ')[0];
+                if (d !== day) { html += dayDivider(d); day = d; }
+                html += chatLine(c);
+            }
+            return html;
+        }
+        function setChatTop() {
+            let top = chatBox.querySelector('.chat-top');
+            if (!top) { top = document.createElement('div'); top.className = 'chat-top'; chatBox.prepend(top); }
+            top.textContent = chat.loading ? 'loading older messages...' : chat.more ? '↑ scroll up for older messages' : '· start of chat history ·';
+        }
+        function fresh(list) { return list.filter(c => !chat.seen.has(c.id) && chat.seen.add(c.id)); }
+
+        async function pollChat() {
+            try {
+                const res = await fetch('/api/chat?limit=100');
+                const data = await res.json();
+                document.getElementById('chat-count').textContent = `${data.total.toLocaleString()} entries`;
+                const added = fresh(data.chats).reverse();
+                if (chat.newestId === null) {
+                    // first load
+                    chat.more = data.more;
+                    chatBox.innerHTML = added.length ? chatHtml(added, null) : '<div class="loading">no messages yet</div>';
+                    if (added.length) {
+                        chat.oldestId = added[0].id; chat.firstDay = added[0].sent_at.split(' ')[0];
+                        chat.newestId = added[added.length - 1].id; chat.lastDay = added[added.length - 1].sent_at.split(' ')[0];
+                        setChatTop();
+                    }
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                    requestAnimationFrame(() => { chatBox.scrollTop = chatBox.scrollHeight; });
+                    return;
+                }
+                if (!added.length) return;
+                const atBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 40;
+                chatBox.insertAdjacentHTML('beforeend', chatHtml(added, chat.lastDay));
+                chat.newestId = added[added.length - 1].id; chat.lastDay = added[added.length - 1].sent_at.split(' ')[0];
+                if (atBottom) chatBox.scrollTop = chatBox.scrollHeight;
+            } catch (err) {
+                console.warn('chat poll failed', err);
+            }
+        }
+
+        async function loadOlderChat() {
+            if (chat.loading || !chat.more || chat.oldestId === null) return;
+            chat.loading = true; setChatTop();
+            try {
+                const res = await fetch(`/api/chat?limit=100&before=${chat.oldestId}`);
+                const data = await res.json();
+                const older = fresh(data.chats).reverse();
+                chat.more = data.more;
+                if (older.length) {
+                    // the day divider that used to be at the top moves into the new chunk if it is the same day
+                    const firstDivider = chatBox.querySelector('.day');
+                    const lastOlderDay = older[older.length - 1].sent_at.split(' ')[0];
+                    if (firstDivider && firstDivider.dataset.day === lastOlderDay) firstDivider.remove();
+                    const keep = chatBox.scrollHeight - chatBox.scrollTop;
+                    chatBox.querySelector('.chat-top').insertAdjacentHTML('afterend', chatHtml(older, null));
+                    chatBox.scrollTop = chatBox.scrollHeight - keep;  // stay on the same message
+                    chat.oldestId = older[0].id; chat.firstDay = older[0].sent_at.split(' ')[0];
+                }
+            } catch (err) {
+                console.warn('loading older chat failed', err);
+            } finally {
+                chat.loading = false; setChatTop();
+            }
+        }
+
+        chatBox.addEventListener('scroll', () => { if (chatBox.scrollTop < 80) loadOlderChat(); });
+
+        document.getElementById('players-list').addEventListener('click', e => {
+            const row = e.target.closest('[data-locate]');
+            if (row) showOnMap(row.dataset.locate);
+        });
+
         fetchStatus();
         setInterval(fetchStatus, 10000);
+        pollChat();
+        setInterval(pollChat, 5000);
     </script>
 </body>
 </html>

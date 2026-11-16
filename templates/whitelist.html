@@ -4,67 +4,87 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Join Server - MC Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/png" href="/server-icon.png?v={{ icon_v }}">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        mc: {
-                            dark: '#1a1a1a',
-                            darker: '#121212',
-                            green: '#4ade80',
-                            gray: '#2a2a2a'
-                        }
-                    }
-                }
-            }
+    <style>
+        /* Same terminal look as the dashboard. */
+        :root {
+            color-scheme: dark;
+            --bg: #0b0e14; --panel: #0e121a; --border: #465a82; --title: #78c8ff; --label: #8c96aa;
+            --text: #dce1eb; --muted: #7d8499; --good: #50dc78; --warn: #ffc83c; --bad: #ff5050;
+            --font: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
         }
-    </script>
+        * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #2e3850 transparent; }
+        *::-webkit-scrollbar { width: 10px; height: 10px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb { background: #2e3850; border-radius: 9999px; border: 2px solid var(--panel); }
+        html { background: var(--bg); scrollbar-color: #2e3850 var(--bg); }
+        body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 18px 16px;
+               background: var(--bg); color: var(--text); font: 14px/1.55 var(--font); text-shadow: 0 0 6px rgba(120,200,255,.12); }
+        body::before, body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50; }
+        body::before { background: repeating-linear-gradient(to bottom, rgba(255,255,255,.022) 0, rgba(255,255,255,.022) 1px, transparent 1px, transparent 3px); }
+        body::after { background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.35) 100%); }
+        a { color: var(--label); text-decoration: none; } a:hover { color: var(--title); text-decoration: underline; }
+        .col { width: 100%; max-width: 460px; }
+        .back { display: inline-block; margin-bottom: 26px; font-size: 13px; }
+        .prompt { color: var(--label); margin: 0 0 18px; overflow-wrap: anywhere; }
+        .prompt .ps { color: var(--good); } .prompt .path { color: var(--title); } .prompt .cmd { color: var(--text); }
+        .cursor { display: inline-block; width: .6em; background: var(--text); margin-left: 2px; animation: blink 1.1s steps(1) infinite; color: transparent; }
+        @keyframes blink { 50% { opacity: 0; } }
+        .box { position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 24px 20px 20px; }
+        .box .tt { position: absolute; top: -.8em; left: 16px; padding: 0 .6em; background: var(--bg); font-weight: 700; letter-spacing: .12em;
+                   text-transform: uppercase; animation: glow 14s ease-in-out infinite; }
+        @keyframes glow { 0%, 100% { color: #78c8ff; } 33% { color: #a0e68c; } 66% { color: #bea0ff; } }
+        h1 { margin: 0 0 4px; font-size: 16px; color: var(--good); letter-spacing: .04em; }
+        .lead { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+        label { display: block; color: var(--label); margin-bottom: 6px; font-size: 13px; }
+        .field { display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid #2a3248; border-radius: 6px; padding: 0 12px; }
+        .field:focus-within { border-color: var(--title); box-shadow: 0 0 0 2px rgba(120,200,255,.15); }
+        .field span { color: var(--good); }
+        input[type=text] { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text); font: inherit; padding: 11px 0; }
+        input::placeholder { color: #4a5266; }
+        .hint { margin: 6px 0 16px; color: var(--muted); font-size: 12px; }
+        .cf-turnstile { margin-bottom: 16px; }
+        button { width: 100%; background: transparent; border: 1px solid var(--good); color: var(--good); padding: 11px; border-radius: 6px;
+                 font: inherit; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; text-shadow: none; }
+        button:hover:not(:disabled) { background: var(--good); color: var(--bg); }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        #message { margin-top: 16px; padding: 12px 14px; border-radius: 6px; font-size: 13px; border: 1px solid; }
+        #message.hidden { display: none; }
+        #message.success { color: var(--good); border-color: #1f5a35; background: rgba(80,220,120,.08); }
+        #message.error { color: var(--bad); border-color: #6a2a2a; background: rgba(255,80,80,.08); }
+        .foot { text-align: center; color: var(--muted); font-size: 12px; margin-top: 22px; }
+        @media (prefers-reduced-motion: reduce) { .cursor, .box .tt { animation: none; } .box .tt { color: var(--title); } }
+    </style>
 </head>
-<body class="bg-mc-darker text-gray-100 min-h-screen flex items-center justify-center p-4">
-    <div class="w-full max-w-md">
-        <!-- Back link -->
-        <a href="/" class="text-gray-500 hover:text-mc-green text-sm mb-6 inline-block">&larr; Back to Dashboard</a>
+<body>
+    <div class="col">
+        <a href="/" class="back">&larr; back to dashboard</a>
 
-        <div class="bg-mc-dark rounded-lg p-8">
-            <h1 class="text-2xl font-bold text-mc-green mb-2">Join the Server</h1>
-            <p class="text-gray-500 text-sm mb-6">Enter your Minecraft username to get whitelisted</p>
+        <div class="box">
+            <div class="tt">Join the server</div>
+            <h1>Get whitelisted</h1>
+            <p class="lead">Enter your Minecraft username to be added.</p>
 
-            <form id="whitelist-form" class="space-y-4">
-                <div>
-                    <label for="username" class="block text-sm text-gray-400 mb-2">Minecraft Username</label>
-                    <input
-                        type="text"
-                        id="username"
-                        name="username"
-                        placeholder="Steve"
-                        pattern="[a-zA-Z0-9_]{3,16}"
-                        required
-                        class="w-full bg-mc-darker border border-mc-gray rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-mc-green transition"
-                    >
-                    <p class="text-xs text-gray-600 mt-1">3-16 characters, letters/numbers/underscores</p>
+            <form id="whitelist-form">
+                <label for="username">Minecraft username</label>
+                <div class="field">
+                    <span>&gt;</span>
+                    <input type="text" id="username" name="username" placeholder="Steve" pattern="[a-zA-Z0-9_]{3,16}"
+                           required autocomplete="off" autocapitalize="off" spellcheck="false">
                 </div>
+                <p class="hint">3-16 characters: letters, numbers, underscores</p>
 
                 <!-- Cloudflare Turnstile -->
                 <div class="cf-turnstile" data-sitekey="{{ turnstile_sitekey }}" data-theme="dark"></div>
 
-                <button
-                    type="submit"
-                    id="submit-btn"
-                    class="w-full bg-mc-green hover:bg-green-400 text-black font-semibold py-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Whitelist Me
-                </button>
+                <button type="submit" id="submit-btn">Whitelist me</button>
             </form>
 
-            <div id="message" class="mt-4 hidden"></div>
+            <div id="message" class="hidden"></div>
         </div>
 
-        <p class="text-center text-gray-600 text-xs mt-6">
-            Server: {{ mc_address }}
-        </p>
+        <p class="foot">server: {{ mc_address }}</p>
     </div>
 
     <script>
@@ -107,14 +127,13 @@
                 turnstile.reset();
             } finally {
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Whitelist Me';
+                submitBtn.textContent = 'Whitelist me';
             }
         });
 
         function showMessage(text, type) {
-            messageDiv.className = `mt-4 p-4 rounded-lg text-sm ${type === 'success' ? 'bg-green-900/30 text-mc-green border border-green-800' : 'bg-red-900/30 text-red-400 border border-red-800'}`;
+            messageDiv.className = type === 'success' ? 'success' : 'error';
             messageDiv.textContent = text;
-            messageDiv.classList.remove('hidden');
         }
     </script>
 </body>

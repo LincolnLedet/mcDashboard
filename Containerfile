@@ -3,8 +3,9 @@ FROM docker.io/library/python:3.13.13-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py logsync.py ./
+COPY app.py logsync.py territory.py ./
 COPY templates templates
+COPY static static
 
 RUN useradd --uid 1000 --no-create-home mcdash && mkdir -p /app/data && chown mcdash /app/data
 ENV HOME=/tmp

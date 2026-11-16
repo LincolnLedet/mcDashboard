@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MC Territories</title>
+<link rel="icon" type="image/png" href="/server-icon.png?v={{ icon_v }}">
+<style>
+    /* Same terminal look and colours as the main dashboard (index.html). */
+    :root {
+        color-scheme: dark;
+        --bg: #0b0e14; --panel: #0e121a; --border: #465a82; --title: #78c8ff; --label: #8c96aa; --text: #dce1eb;
+        --muted: #7d8499; --good: #50dc78; --warn: #ffc83c; --bad: #ff5050; --hover: #151b27;
+        --font: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #2e3850 transparent; }
+    html { background: var(--bg); }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 14px/1.55 var(--font); text-shadow: 0 0 6px rgba(120, 200, 255, .12); }
+    body::before, body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50; }
+    body::before { background: repeating-linear-gradient(to bottom, rgba(255,255,255,.022) 0, rgba(255,255,255,.022) 1px, transparent 1px, transparent 3px); }
+    body::after { background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.35) 100%); }
+    a { color: var(--title); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1440px; margin: 0 auto; padding: 18px 16px 28px; }
+
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand img { width: 36px; height: 36px; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; }
+    .brand h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .28em; color: var(--title); text-transform: uppercase; text-shadow: 0 0 10px rgba(120,200,255,.45); }
+    .brand h1 span { color: var(--muted); font-weight: 400; }
+    .beta { color: var(--warn); font-size: 11px; letter-spacing: .14em; border: 1px solid var(--warn); border-radius: 4px; padding: 0 5px; text-transform: uppercase; }
+    .rule { height: 2px; margin: 10px 0 22px; background: linear-gradient(90deg, #223153, var(--title), #b4a0ff, var(--title), #223153); background-size: 200% 100%; animation: slide 9s linear infinite; opacity: .8; }
+    @keyframes slide { to { background-position: -200% 0; } }
+
+    .box { position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 20px 16px 14px; min-width: 0; }
+    .box .tt { position: absolute; top: -.8em; left: 16px; padding: 0 .6em; background: var(--bg); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--title); }
+    .box .meta { position: absolute; top: -.8em; right: 16px; padding: 0 .6em; background: var(--bg); color: var(--muted); font-size: 12px; }
+
+    .grid { display: grid; gap: 26px; grid-template-columns: minmax(0, 1fr) 330px; }
+    @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+
+    .sheet { display: block; width: 100%; height: calc(100vh - 150px); min-height: 420px; border: 1px solid #1b2231; border-radius: 8px; background: var(--bg); }
+    @media (max-width: 960px) { .sheet { height: 70vh; } }
+
+
+
+
+        border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.6); font-size: 13px; }
+
+    .st-thriving { color: var(--good); } .st-quiet { color: var(--warn); } .st-abandoned { color: var(--muted); }
+
+    /* the list */
+    .side { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+    .list { max-height: calc(100vh - 420px); min-height: 200px; overflow: auto; margin: 0 -6px; }
+    @media (max-width: 960px) { .list { max-height: none; } }
+    .row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 0 10px; align-items: center; padding: 6px; border-radius: 6px; cursor: pointer; }
+    .row:hover { background: var(--hover); }
+    .row .sw { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 6px currentColor; background: currentColor; }
+    .row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .n { color: var(--label); font-size: 12px; text-align: right; }
+    .row .sub { grid-column: 2 / 4; font-size: 11px; color: var(--muted); }
+    .ctl { display: flex; align-items: center; gap: 8px; color: var(--label); font-size: 12px; margin-bottom: 8px; cursor: pointer; }
+    .ctl input { accent-color: var(--title); }
+    .how { font-size: 12px; color: var(--label); }
+    .how p { margin: 0 0 8px; }
+    .how b { color: var(--text); font-weight: 400; }
+    .loading::after { content: ""; animation: dots 1.2s steps(4) infinite; }
+    @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="top">
+        <div class="brand">
+            <img src="/server-icon.png?v={{ icon_v }}" alt="">
+            <h1>heyim <span>// territories</span></h1>
+            <span class="beta">beta</span>
+        </div>
+        <a href="/">&larr; dashboard</a>
+    </div>
+    <div class="rule"></div>
+
+    <div class="grid">
+        <section class="box">
+            <div class="tt">Territory map</div>
+            <div class="meta" id="when"></div>
+            <iframe class="sheet" id="map" src="{{ map_url }}/?territories=spawn" title="Territory map" allow="fullscreen"></iframe>
+        </section>
+
+        <div class="side">
+            <section class="box">
+                <div class="tt">Territories</div>
+                <div class="meta" id="count"></div>
+                <label class="ctl"><input type="checkbox" id="show-outposts" checked> show outposts</label>
+                <label class="ctl"><input type="checkbox" id="show-terr" checked> show territories</label>
+                <label class="ctl"><input type="checkbox" id="filter" checked> dark colour filter</label>
+                <div class="ctl"><a href="#" id="home">&#x2302; back to spawn</a></div>
+                <div class="list" id="list"></div>
+            </section>
+            <section class="box how">
+                <div class="tt">How it works</div>
+                <p>Each chunk is scored per player from CoreProtect's block log, <b>surface activity only</b> (mines and caves don't count):</p>
+                <p><b>blocks placed</b>: chests, beds, furnaces and workstations count most; dirt, stone, crops, water and leaves don't count.<br>
+                   <b>time spent</b>: 5-minute stretches with any building, chest use, chat or command there.</p>
+                <p>Older activity fades by half every 3 weeks. Where two areas overlap, the stronger claim wins. Redrawn every 3 hours.</p>
+                <p>The map is the live BlueMap: drag to pan, right-drag to rotate, scroll to zoom. Click a territory for its details.</p>
+            </section>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+    const $ = id => document.getElementById(id);
+    const frame = $('map'), MAP_ORIGIN = new URL(frame.src).origin;
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const standing = r => r.days_idle < 3 ? ['thriving', 'active'] : r.days_idle < 14 ? ['quiet', 'quiet lately'] : ['abandoned', 'inactive'];
+    let D = null, ready = false;
+    const send = msg => ready && frame.contentWindow.postMessage(msg, MAP_ORIGIN);
+    const show = () => send({ type: 'heyim-show', territories: $('show-terr').checked, outposts: $('show-outposts').checked });
+    const push = () => { if (D) { send({ type: 'heyim-territories', data: D }); show(); send({ type: 'heyim-filter', on: $('filter').checked }); } };
+
+    // the BlueMap script says hello once it's loaded (again after any reload inside the frame)
+    addEventListener('message', e => {
+        if (e.origin !== MAP_ORIGIN || e.source !== frame.contentWindow || e.data?.type !== 'heyim-ready') return;
+        ready = true; push();
+    });
+
+    function list() {
+        const caps = D.realms.filter(r => r.capital);
+        $('count').textContent = `${caps.length} players · ${D.realms.length - caps.length} outposts`;
+        $('list').innerHTML = '';
+        caps.slice().sort((a, b) => b.chunks - a.chunks).forEach(r => {
+            const all = D.realms.filter(o => o.player === r.player);
+            const [cls, word] = standing(r);
+            const row = document.createElement('div');
+            row.className = 'row';
+            row.innerHTML = `<span class="sw" style="color:${D.palette[r.color]}"></span><span class="who">${esc(r.player)}</span>
+                <span class="n">${all.reduce((t, o) => t + o.chunks, 0).toLocaleString()} ch</span>
+                <span class="sub">${Math.round(all.reduce((t, o) => t + o.hours, 0))} h · <span class="st-${cls}">${word}</span>${all.length > 1 ? ` · +${all.length - 1} outpost${all.length > 2 ? 's' : ''}` : ''}</span>`;
+            row.onclick = () => {
+                send({ type: 'heyim-focus', x: r.seat[0], z: r.seat[1], distance: 450, index: D.realms.indexOf(r) });
+                if (innerWidth <= 960) frame.scrollIntoView({ behavior: 'smooth' });
+            };
+            $('list').appendChild(row);
+        });
+    }
+
+    $('show-outposts').onchange = show;
+    $('show-terr').onchange = show;
+    $('filter').onchange = e => send({ type: 'heyim-filter', on: e.target.checked });
+    $('home').onclick = e => { e.preventDefault(); D && send({ type: 'heyim-focus', x: D.spawn[0], z: D.spawn[1], distance: 1800 }); };
+
+    fetch('/realms/data.json').then(r => r.json()).then(d => {
+        D = d; list(); push();
+        const t = new Date(d.generated * 1000);
+        $('when').textContent = `updated ${t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    }).catch(() => { $('count').textContent = 'not generated yet'; });
+})();
+</script>
+</body>
+</html>

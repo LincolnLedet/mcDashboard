@@ -1,6 +1,7 @@
 // Opened without a shared position link? Point the camera at whoever is online:
 // one player -> follow them, several -> frame them all.
 (async () => {
+  if (new URLSearchParams(location.search).get("territories") === "spawn") return; // territories.js places the camera
   const nav = performance.getEntriesByType("navigation")[0];
   if (nav && new URL(nav.name).hash.length > 1) return; // keep positions from shared links
 
